@@ -1,6 +1,8 @@
 # fnirs-sim
 
-This repository contains the Python code to simulate an fNIRS recording session for a block design, taking Gervain et al. (2012)'s design as an example.
+This repository contains the Python code to simulate an fNIRS recording session for a block design, taking Gervain et al. ([2012](
+https://doi.org/10.1162/jocn_a_00157
+))'s design as an example.
 
 ## Requirements
 
@@ -24,3 +26,5 @@ hbo, hbr = hrf(time, ratio=0.25)
 plt.plot(hbo)
 plt.plot(hbr)
 ```
+
+See [this Jupyter notebook](docs/index.ipynb) for a complete walkthrough.
