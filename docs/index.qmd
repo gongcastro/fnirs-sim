@@ -1,0 +1,432 @@
+---
+title: "Simulating fNIRS data"
+format:
+  html:
+    code-fold: true
+jupyter: python3
+---
+
+```{python}
+# | label: setup
+from src import HRF
+import src.HRF
+import matplotlib.pyplot as plt
+from scipy.stats import norm, gamma, uniform
+import numpy as np
+import sys
+sys.path.append("../")  # go to parent dir
+from src import HRF
+
+```
+
+
+# Hemodynamic Response Function (HRF)
+
+* What it is
+* How it looks like
+* What software implements it
+* Why it is relevant for fNIRS
+* Trying to simulate fNIRS: separating HbO from HbR
+
+# A clunky adaptation of the HRF function by Glover et al (1999)
+
+Desirable peroperties of the HRF function:
+
+* Peaks at 5 seconds
+* Takes X seconds to go back to baseline
+* HbO peak is consistently positive
+* HbR peak is negative around 65% of the times
+* HbR peak has a lower amplitude than the HbO peak
+* HbR peak peaks slighly later than HbO
+
+We can control this using the following parameters:
+
+* Peak delay: shorter for HbO than for HbR
+* Peak width
+* Peak amplitude: more positive for HbO than for HbR; sometime positive and sometimes negative for HbR
+* Amplitude difference ratio: how
+
+The reflect our uncertainty about the specific shape of the HRF every simulated response will be generated with slighly different parameters. These parameters will be drawn from a normal distribution. The location and shape parameters of the distribution for each parameter will adjusted so that, on average, the resulting HRF shape is expected. I"m using SciPy to generate the parameters for 100 iterations.
+
+```{python}
+N_ITER = 100
+
+adist = norm(0.80, 0.15).rvs(N_ITER)
+ddist = norm(6, 0.5).rvs(N_ITER)
+wdist = norm(1, 0.15).rvs(N_ITER)
+rdist = norm(0.1, 0.15).rvs(N_ITER)
+
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2)
+ax1.hist(adist, rwidth=0.8)
+ax2.hist(ddist, rwidth=0.8)
+ax3.hist(wdist, rwidth=0.8)
+ax4.hist(rdist, rwidth=0.8)
+
+```
+
+
+Next, the actual function. I"m adapting the HRF presented by Glover et al. (1999), which capitalises on the Gamma distribution. The HbR signal is a transformation of the HbO signal: we scale its amplitude by the `ratio` parameter, and then we make it the opposite sign (negative).
+
+```{python}
+def hrf(time: np.ndarray = np.arange(0, 20, 0.1),
+        amplitude: float = 1.2,
+        peak_delay: float = 5.00,
+        peak_width: float = 0.50,
+        ratio: float = 0.80) -> np.ndarray:
+    gamma = time ** peak_delay * np.exp(-time / peak_width)
+    hbo = amplitude * gamma / gamma.max()
+    hbr = -ratio * hbo
+    return hbo, hbr
+```
+
+Let's see what one of our iterations would look like:
+
+```{python}
+sfreq = 10
+time = np.arange(0, 20, 1/sfreq)
+hbo, hbr = hrf(time, ratio=0.25)
+
+plt.plot(hbo)
+plt.plot(hbr)
+```
+
+Now we generate and visualise the 100 iterations:
+
+```{python}
+for (a, d, w, r) in zip(adist, ddist, wdist, rdist):
+    hbo, hbr = hrf(time, a, d, w, r)
+    plt.plot(time, hbr, c="dodgerblue", alpha=1/5)
+    plt.plot(time, hbo, c="orange", alpha=1/5)
+plt.hlines(y=[0], xmin=0, xmax=20,
+           color="black", linestyles="dashed")
+plt.show()
+```
+
+## Simulating a block design
+
+Following Gervain et al. (2012).
+
+```{python}
+def sim_block(n_stim: int = 10,
+              stim_duration: float = 0.8,
+              isi: float = 1.5,
+              silence_duration: int = 25):
+    block_onsets = []
+    block_offsets = []
+    for _ in np.arange(n_blocks):
+        onsets = np.cumsum(
+            np.repeat([stim_duration + isi], n_stim))
+        onsets = np.insert(onsets[0:-1], 0, 0)
+        offsets = onsets + isi
+    return onsets, offsets
+```
+
+```{python}
+# paradigm params
+condition_labels = ["A", "B"]
+stim_duration = 270 * 3 / 1000
+words_per_block = 10
+n_blocks = 28
+isi = [1.5, 0.5]
+block_duration = np.sum(
+    [stim_duration] * words_per_block +
+    isi * int(words_per_block / 2))
+ibi = [25, 35]  # inter-block interval (silence)
+ibi_series = ibi * n_blocks
+run_duration = np.sum([block_duration] * n_blocks + ibi * n_blocks)
+
+onsets, offsets = sim_block()
+```
+
+Let's visualisie the block design using a boxcar plot:
+
+```{python}
+boxcar = np.hstack([[x, x, y, y] for (x, y) in zip(onsets, offsets)])
+plt.plot(boxcar, np.hstack([[0, 1, 1, 0]
+                            for _ in np.arange(len(onsets))]))
+plt.show()
+```
+
+Now let"s simulate multiple blocks to simulate a procedure:
+
+```{python}
+def sim_design(n_blocks: int = 28,
+               ibi: int = 25,
+               **kwargs):
+    onsets = []
+    offsets = []
+    delay = 0
+    for _ in np.arange(n_blocks):
+        on, of = sim_block(**kwargs)
+        onsets.append(on + delay)
+        offsets.append(of + delay)
+        delay = delay + on[1] + ibi
+    return np.vstack(onsets), np.vstack(offsets)
+```
+
+```{python}
+# simulate events
+onset_design, offset_design = sim_design(n_blocks=n_blocks)
+block_onsets = np.min(onset_design, axis=1)
+block_offsets = np.min(offset_design, axis=1)
+y_onsets = np.vstack([np.repeat(-1, len(x)) for x in onset_design])
+y_offsets = np.vstack([np.repeat(1, len(x)) for x in offset_design])
+plt.scatter(onset_design, y_onsets, marker="|",
+            label="Stimuli onsets", color="blue")
+plt.scatter(offset_design, y_offsets, marker="|",
+            label="Stimuli offsets", color="orange")
+plt.vlines(block_onsets, ymin=-1.25, ymax=-0.75,
+           label="Block onsets", colors="blue")
+plt.vlines(block_offsets, ymin=0.75, ymax=1.25,
+           label="Block onsets", colors="orange")
+plt.legend(loc="upper right")
+plt.xlabel(xlabel="Time (s)")
+plt.ylim([-2, 2])
+plt.show()
+```
+
+We can add our simulated HRF for each stimulus onset:
+
+```{python}
+# add signal
+hrf_list = []
+time_list = []
+time = np.arange(0, 20, 0.1)
+for o in onsets:
+    adist = norm(0.80, 0.15).rvs(1)
+    ddist = norm(6, 0.5).rvs(1)
+    wdist = norm(1, 0.15).rvs(1)
+    rdist = norm(0.1, 0.15).rvs(1)
+    hrf_list.append(hrf(time, adist, ddist, wdist, rdist))
+    time_list.append(o + time)
+
+onsets, offsets = sim_block()
+boxcar = np.hstack([[x, x, y, y]
+                    for (x, y) in zip(onsets, offsets)])
+
+```
+
+
+```{python}
+plt.plot(
+    boxcar,
+    np.hstack([[0, 1, 1, 0] for _ in np.arange(len(onsets))]),
+    color="grey")
+
+hbo_list = []
+hbr_list = []
+for t, (hbo, hbr) in zip(time_list, hrf_list):
+    hbo_list.append(hbo)
+    hbr_list.append(hbr)
+    plt.plot(t, hbo, color="orange")
+    plt.plot(t, hbr, color="dodgerblue")
+```
+
+## Averaging blocks
+
+Convolving responses.
+
+```{python}
+def convolve_responses(times: np.ndarray,
+                       values: np.ndarray,
+                       sfreq: float = 10,
+                       n: int = 25) -> np.ndarray:
+    conv = []
+    times = []
+    for idx, (t, signal) in enumerate(zip(time_list, values)):
+        pad1 = len(np.arange(0, np.min(t), 1/sfreq))
+        pad2 = len(np.arange(np.max(t), np.max(time_list), 1/sfreq))
+        s = np.hstack([np.zeros([pad1, ]),
+                       signal,
+                       np.zeros([pad2, ])])
+        if idx != 0:
+            s = s[0:np.min([len(x) for x in conv])]
+        conv.append(s)
+    conv_signal = np.sum(np.vstack(conv), 0)
+    times_conv = np.linspace(0, np.max(time_list), len(conv_signal))
+    return conv_signal, times_conv
+```
+
+
+```{python}
+hbo_conv, times_conv = convolve_responses(time_list, hbo_list)
+hbr_conv, _ = convolve_responses(time_list, hbr_list)
+
+for t, (hbo, hbr) in zip(time_list, hrf_list):
+    hbo_list.append(hbo)
+    hbr_list.append(hbr)
+    plt.plot(t, hbo, color="orange", alpha=1/4)
+    plt.plot(t, hbr, color="dodgerblue", alpha=1/4)
+plt.plot(times_conv, hbo_conv, color="orange")
+plt.plot(times_conv, hbr_conv, color="dodgerblue")
+plt.show()
+```
+
+## Adding noise
+
+```{python}
+def generate_noise(signal: np.ndarray,
+                   time: np.ndarray,
+                   type: str = "white",
+                   sfreq: int = 10):
+    n_samples = len(signal)
+    if type == "white":
+        return norm(0.0, 0.2).rvs(size=n_samples)
+    else:
+        if type == "heart":
+            freq = np.random.normal(1.5, 0.2)
+            inc = np.random.uniform(1.03, 1.10)
+        if type == "respiration":
+            freq = np.random.normal(0.25, 0.05)
+            inc = np.random.uniform(1.03, 1.10)
+        if type == "mayer":
+            freq = np.random.normal(0.1, 0.02)
+            inc = np.random.uniform(1.03, 1.10)
+        return np.sin(time * freq / sfreq * np.pi * inc)
+```
+
+```{python}
+# add measurement and heartbeat arctifacts
+heart_noise = generate_noise(hbo_conv,
+                             times_conv, type="heart")
+resp_noise = generate_noise(hbo_conv,
+                            times_conv, type="respiration")
+mayer_noise = generate_noise(hbo_conv,
+                             times_conv, type="mayer")
+white_noise = generate_noise(hbo_conv, times_conv, type="white")
+hbo_noise = np.sum([hbo_conv, white_noise, heart_noise,
+                    resp_noise, mayer_noise], 0)
+plt.plot(times_conv, white_noise, label="Measurement error")
+plt.plot(times_conv, heart_noise, label="Heartbeat")
+plt.plot(times_conv, resp_noise, label="Respiration", zorder=0)
+plt.plot(times_conv, mayer_noise, label="Mayer waves", zorder=0)
+plt.plot(times_conv, hbo_noise, label="Noisy signal")
+plt.plot(times_conv, hbo_conv, label="Clean HbO", zorder=0)
+plt.legend(loc="upper right")
+plt.xlabel(xlabel="Time (s)")
+plt.ylabel(ylabel="Haemoglobin (μM)")
+plt.show()
+```
+
+## Simulating the whole channel
+
+```{python}
+def sim_channel(onsets: np.ndarray, sfreq: float = 10):
+    hrf_list = []
+    time_list = []
+    for o in onsets:
+        t = np.arange(0, 20, 1/sfreq)
+        adist = norm(0.80, 0.15).rvs(1)
+        ddist = norm(6, 0.5).rvs(1)
+        wdist = norm(1, 0.15).rvs(1)
+        rdist = norm(0.1, 0.15).rvs(1)
+        hrf_list.append(hrf(t, adist, ddist, wdist, rdist))
+        time_list.append(np.min(o) + t)
+
+    hbo_list = []
+    hbr_list = []
+    for (hbo, hbr) in hrf_list:
+        hbo_list.append(hbo)
+        hbr_list.append(hbr)
+    hbo_conv, times_conv = convolve_responses(time_list, hbo_list)
+    hbr_conv, _ = convolve_responses(time_list, hbr_list)
+    heart_noise = generate_noise(hbo_conv,
+                                 times_conv, type="heart")
+    resp_noise = generate_noise(hbo_conv,
+                                times_conv, type="respiration")
+    mayer_noise = generate_noise(hbo_conv,
+                                 times_conv, type="mayer")
+    white_noise = generate_noise(hbo_conv, times_conv, type="white")
+    hbo = np.sum([hbo_conv, white_noise, heart_noise,
+                  resp_noise, mayer_noise], 0)
+    hbr = np.sum([hbr_conv, white_noise, -heart_noise,
+                  -resp_noise, -mayer_noise], 0)
+    return hbo, hbr, times_conv
+```
+
+```{python}
+hbo, hbr, times = sim_channel(onset_design)
+
+fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, ncols=1, sharex=True, sharey=True)
+
+onset_design, offset_design = sim_design(n_blocks=n_blocks)
+block_onsets = np.min(onset_design, axis=1)
+block_offsets = np.min(offset_design, axis=1)
+y_onsets = np.vstack([np.repeat(-1, len(x)) for x in onset_design])
+y_offsets = np.vstack([np.repeat(1, len(x)) for x in offset_design])
+ax1.scatter(onset_design, y_onsets, marker="|", s=2,
+            label="Stimuli onsets", color="dodgerblue")
+ax1.scatter(offset_design, y_offsets, marker="|", s=1,
+            label="Stimuli offsets", color="orange")
+ax1.vlines(block_onsets, ymin=-1.25, ymax=-0.75,
+           label="Block onsets", colors="dodgerblue")
+ax1.vlines(block_offsets, ymin=0.75, ymax=1.25,
+           label="Block onsets", colors="orange")
+ax1.legend(loc="upper right")
+ax1.set_xlabel(xlabel="Time (s)")
+ax1.set_title("Task design")
+ax1.set_ylim([-2, 2])
+
+ax2.plot(times, hbo, label="HbO", color="orange")
+ax2.hlines(y=[0], xmin=0, xmax=np.max(times),
+           color="grey", linestyles="dashed")
+ax2.set_ylabel(ylabel="Hb (μM x mm)")
+ax2.set_title("Channel 1 (HbO)")
+
+ax3.plot(times, hbr, label="HbR", color="dodgerblue")
+ax3.hlines(y=[0], xmin=0, xmax=np.max(times),
+           color="grey", linestyles="dashed")
+ax3.set_ylabel(ylabel="Hb (μM x mm)")
+ax3.set_title("Channel 1 (HbR)")
+plt.tight_layout()
+plt.xlabel(xlabel="Time (s)")
+plt.title("Channel 1 (HbR)")
+plt.show()
+```
+
+## Simulating a dataset
+
+```{python}
+def sim_dataset(onsets: np.ndarray,
+                n_channels: int = 10):
+    ch_names = ["Ch" + str(x) for x in np.arange(n_channels)]
+    time_list = []
+    dataset = []
+    for ch in ch_names:
+        hbo, hbr, times = sim_channel(onsets)
+        dataset.append(hbo)
+        dataset.append(hbr)
+        time_list.append(times)
+    ch_names = [x + y for x in ch_names for y in [" HbO", " HbR"]]
+    times = [times] * len(dataset)
+    return dataset, times, ch_names
+```
+
+```{python}
+# | label: fig-dataset
+# | fig-cap: Dataset
+# | fig-height: 15
+# | fig-width: 5
+N_CHANNELS = 5
+dataset, times, ch_names = sim_dataset(onset_design, n_channels=N_CHANNELS)
+
+fig, ax = plt.subplots(nrows=N_CHANNELS*2,
+                       ncols=1,
+                       sharex=True,
+                       sharey=True,
+                       layout="constrained")
+
+for idx, (d, t, c) in enumerate(zip(dataset, times, ch_names)):
+    color = "orange" if "HbO" in c else "dodgerblue"
+    ax[idx].plot(t, np.transpose(d), color=color)
+    ax[idx].set_title(c, position=(1, 0), ha="left", va="top")
+fig.text(-0.05, 0.5,
+         "Hb (μM x mm)",
+         va="center",
+         rotation="vertical")
+fig.set_size_inches(5, 10, forward=True)
+plt.xlabel(xlabel="Time (s)")
+
+plt.tight_layout()
+
+```
