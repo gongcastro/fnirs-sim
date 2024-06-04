@@ -28,3 +28,12 @@ plt.plot(hbr)
 ```
 
 See [this Jupyter notebook](docs/index.ipynb) for a complete walkthrough.
+
+## References
+
+Glover, G. H. (1999). Deconvolution of impulse response in event-related BOLD fMRI1. Neuroimage, 9(4), 416-429. https://doi.org/10.1006/nimg.1998.0419
+
+Gervain, J., Berent, I., & Werker, J. F. (2012). Binding at birth: The newborn brain detects identity relations and sequential position in speech. Journal of Cognitive Neuroscience, 24(3), 564-574. https://doi.org/10.1162/jocn_a_00157
+
+
+

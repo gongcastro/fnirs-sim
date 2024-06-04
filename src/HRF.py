@@ -31,6 +31,10 @@ def hrf(time: np.ndarray = np.arange(0, 20, 0.1),
     hbr : numpy.ndarray
         Simulated HRF for HbR
 
+    References
+    ----------
+    Glover, G. H. (1999). Deconvolution of impulse response in event-related BOLD fMRI1. Neuroimage, 9(4), 416-429. https://doi.org/10.1006/nimg.1998.0419
+
     Examples
     --------
     time = np.arange(0, 20, 0.1)
@@ -65,6 +69,11 @@ def sim_block(n_stim: int = 10,
         Stimulus onsets in seconds.
     offsets : numpy.ndarray
         Stimulus offsets.
+
+    References
+    ----------
+    Gervain, J., Berent, I., & Werker, J. F. (2012). Binding at birth: The newborn brain detects identity relations and sequential position in speech. Journal of Cognitive Neuroscience, 24(3), 564-574. https://doi.org/10.1162/jocn_a_00157
+
     """
     block_onsets = []
     block_offsets = []
@@ -99,6 +108,10 @@ def sim_design(n_blocks: int = 28,
         Block onsets in seconds.
     offsets : numpy.ndarray
         Block offsets in seconds.
+
+    References
+    ----------
+    Gervain, J., Berent, I., & Werker, J. F. (2012). Binding at birth: The newborn brain detects identity relations and sequential position in speech. Journal of Cognitive Neuroscience, 24(3), 564-574. https://doi.org/10.1162/jocn_a_00157
     """
     onsets = []
     offsets = []
