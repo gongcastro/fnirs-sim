@@ -74,6 +74,10 @@ def sim_block(n_stim: int = 10,
     ----------
     Gervain, J., Berent, I., & Werker, J. F. (2012). Binding at birth: The newborn brain detects identity relations and sequential position in speech. Journal of Cognitive Neuroscience, 24(3), 564-574. https://doi.org/10.1162/jocn_a_00157
 
+    Examples
+    --------
+    >>> onsets, offsets = sim_block()
+
     """
     block_onsets = []
     block_offsets = []
@@ -112,6 +116,10 @@ def sim_design(n_blocks: int = 28,
     References
     ----------
     Gervain, J., Berent, I., & Werker, J. F. (2012). Binding at birth: The newborn brain detects identity relations and sequential position in speech. Journal of Cognitive Neuroscience, 24(3), 564-574. https://doi.org/10.1162/jocn_a_00157
+
+    Examples
+    --------
+    >>> onsets, offsets = sim_design(n_blocks=28)
     """
     onsets = []
     offsets = []
@@ -121,7 +129,8 @@ def sim_design(n_blocks: int = 28,
         onsets.append(on + delay)
         offsets.append(of + delay)
         delay = delay + on[1] + ibi
-    return np.vstack(onsets), np.vstack(offsets)
+    onsets, offsets = np.vstack(onsets), np.vstack(offsets)
+    return onsets, offsets
 
 
 def convolve_responses(times: list[np.ndarray],
@@ -149,6 +158,25 @@ def convolve_responses(times: list[np.ndarray],
         Convolved signal, resulting from summing all responses across the time domain.
     conv_time : numpy.ndarray
         Time domain of the convolved signal.
+
+    Examples
+    --------
+    >>> onsets, _ = sim_design(n_blocks=28)
+    >>> time_list = []
+    >>> time = np.arange(0, 20, 0.1)
+    >>> for o in onsets:
+    ...     time_list.append(o + time)
+    >>> hbo_list = []
+    >>> hbr_list = []
+    >>> for t, (hbo, hbr) in zip(time_list, hrf_list):
+    ...     adist = norm(0.80, 0.15).rvs(1)
+    ...     ddist = norm(6, 0.5).rvs(1)
+    ...     wdist = norm(0.5, 0.15).rvs(1)
+    ...     rdist = norm(0.1, 0.15).rvs(1)
+    ...     hbo_list.append(hbo)
+    ...     hbr_list.append(hbr)
+    >>> hbo_conv, times_conv = convolve_responses(time_list, hbo_list)
+    >>> hbr_conv, _ = convolve_responses(time_list, hbr_list)
     """
     conv = []
     times = []
@@ -195,6 +223,10 @@ def generate_noise(signal: np.ndarray,
     -------
     numpy.ndarray
         Noisy signal.
+
+    Examples
+    --------
+    >>> heart_noise = generate_noise(hbo_conv, times_conv, type="heart")
     """
     n_samples = len(signal)
     if type == "white":
@@ -231,6 +263,10 @@ def sim_channel(onsets: np.ndarray, sfreq: float = 10):
         HbR signal for the whole task.
     times_conv : numpy.ndarray
         Time domain of the task.
+
+    Examples
+    --------
+    hbo, hbr, times = sim_channel(onset_design)
     """
     hrf_list = []
     time_list = []
@@ -262,6 +298,47 @@ def sim_channel(onsets: np.ndarray, sfreq: float = 10):
     hbr = np.sum([hbr_conv, white_noise, -heart_noise,
                   -resp_noise, -mayer_noise], 0)
     return hbo, hbr, times_conv
+
+
+def sim_dataset(onsets: np.ndarray,
+                n_channels: int = 10):
+    """
+    Simulate a datasets corresponding to one participant's recording session.
+
+    This function generates an HbO signal and a HbR signal for multiple channels.
+
+    Parameters
+    ----------
+    onsets : numpy.ndarray
+        Stimulus onsets in seconds.
+    n_channels : int
+        Number of channels to generate. For each channel, two time series will be generated: one for the HbO signal, and one for the HbR signal.
+
+    Returns
+    -------
+    dataset : numpyndarray
+        A collection of time series, corresponding to the HbO and HbR signals of each channel.
+    times : numpy.ndarray
+        A collection of time course arrays, corresponding to the time course of the HbO and HbR signals of each channel.
+    ch_names : list of str
+        A list including the name of each channel and its corresponding chromophore (HbO or HbR).
+
+
+    Examples
+    --------
+    dataset, times, ch_names = sim_dataset(onset_design, n_channels=5)
+    """
+    ch_names = ["Ch" + str(x) for x in np.arange(n_channels)]
+    time_list = []
+    dataset = []
+    for ch in ch_names:
+        hbo, hbr, times = sim_channel(onsets)
+        dataset.append(hbo)
+        dataset.append(hbr)
+        time_list.append(times)
+    ch_names = [x + y for x in ch_names for y in [" HbO", " HbR"]]
+    times = np.vstack([times] * len(dataset))
+    return dataset, times, ch_names
 
 
 if __name__ == "__main__":
