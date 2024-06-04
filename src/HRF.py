@@ -81,7 +81,7 @@ def sim_block(n_stim: int = 10,
     """
     block_onsets = []
     block_offsets = []
-    for _ in np.arange(n_blocks):
+    for _ in np.arange(n_stim):
         onsets = np.cumsum(
             np.repeat([stim_duration + isi], n_stim))
         onsets = np.insert(onsets[0:-1], 0, 0)
@@ -179,7 +179,6 @@ def convolve_responses(times: list[np.ndarray],
     >>> hbr_conv, _ = convolve_responses(time_list, hbr_list)
     """
     conv = []
-    times = []
     for idx, (t, signal) in enumerate(zip(times, values)):
         pad1 = len(np.arange(0, np.min(t), 1/sfreq))
         pad2 = len(np.arange(np.max(t), np.max(times), 1/sfreq))
@@ -339,7 +338,3 @@ def sim_dataset(onsets: np.ndarray,
     ch_names = [x + y for x in ch_names for y in [" HbO", " HbR"]]
     times = np.vstack([times] * len(dataset))
     return dataset, times, ch_names
-
-
-if __name__ == "__main__":
-    return None
